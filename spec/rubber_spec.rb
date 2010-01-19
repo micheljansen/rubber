@@ -38,7 +38,7 @@ describe "Rubber" do
   end
   
   it 'should include variables from javascript' do
-    # Test.new.foo.should == "bar"
+    Test.new.foo.should == "bar"
   end
 
 end

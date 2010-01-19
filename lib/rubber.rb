@@ -18,15 +18,12 @@ require 'rubber/runtime'
 module Rubber
     
   def self.included(base)
-    puts "#{base} is now wearing Rubber"
     augment_with_methods_from_javascript(base)
   end
   
   def self.augment_with_methods_from_javascript(base)
-    puts "doing magic for #{base}"
     base_name = base.name.underscore + ".js"
     js_file_path = File.join(global_js_base_path, base_name)
-    puts "loading from #{js_file_path}"
     
     def base.js_file
       @js_file
@@ -41,7 +38,7 @@ module Rubber
     end
     
     # this is where the magic happens
-    def base.load_js_methods
+    def base.load_js_delegate
       class_name = self.name.demodulize
       # TODO: DRY this up
       singleton_instance_var = self.name.demodulize.underscore      
@@ -51,13 +48,11 @@ module Rubber
         runtime = Rubber::Runtime::GLOBAL
         runtime.evaluate(js_contents)
         
-        puts "var #{singleton_instance_var} = new #{class_name}()"
-        runtime.evaluate("var #{singleton_instance_var} = new #{class_name}()")
-        result = runtime.evaluate("listmembers(#{singleton_instance_var})")
-        puts "#{class_name} members: #{result.to_a.join(',')}"
-        
-        # puts runtime.evaluate("typeof test['myvar'] == 'function' ? test.myvar() : test.myvar");
-        # puts runtime.evaluate("typeof test['myfunc'] == 'function' ? test.myfunc() : test.myfunc");
+        # puts "var #{singleton_instance_var} = new #{class_name}()"
+        script = "var #{singleton_instance_var} = new #{class_name}(); #{singleton_instance_var}"
+        # runtime.evaluate(class_name).apply_wrappers(self)
+        @js_delegate = js_delegate = runtime.evaluate(script)
+        return js_delegate
       rescue Errno::ENOENT => e
         puts "WARNING: #{e}"
       rescue Johnson::Error => je
@@ -65,9 +60,13 @@ module Rubber
       end
     end
     
+    def base.js_delegate
+      @js_delegate ||= load_js_delegate
+    end
+    
     base.js_file=js_file_path
     
-    base.load_js_methods
+    base.load_js_delegate
   end
   
   def self.global_js_base_path
@@ -90,14 +89,17 @@ module Rubber
   
   def method_missing(name, *args, &block)
     begin
-      puts "method missing: #{name}"
-      script = "#{self.class.singleton_instance_var}.#{name}()"
-      puts script
-      
-      return Rubber::Runtime::GLOBAL.evaluate(script)
-    rescue
-      super(name, args, block)
+      begin
+        # try the delegate first
+        self.class.js_delegate.method_missing(name, args, block)
+      rescue
+        # maybe it's a proparty
+        self.class.js_delegate.send(name)
+      end
+    rescue => e
+      puts "DEBUG: #{e}"
+      # revert to default
+      super.method_missing(name, args, block)
     end
   end
-  
 end
